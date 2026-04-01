@@ -17,7 +17,12 @@
         <n-divider vertical style="height: 22px; margin: 0" />
         <n-space :size="8" align="center" wrap>
           <n-button size="small" secondary @click="openPlanModal">结构规划</n-button>
-          <n-button size="small" type="primary" @click="startWrite">撰稿</n-button>
+          <n-tooltip trigger="hover">
+            <template #trigger>
+              <n-button size="small" type="primary" @click="startWrite">撰稿</n-button>
+            </template>
+            单章 / 托管连写：自动大纲、多章流式、上下文由后端维护。下方对话区仍用于多轮讨论与工具调用。
+          </n-tooltip>
         </n-space>
       </n-space>
     </header>
@@ -119,6 +124,7 @@
             ? '仅本轮：不带此前多轮对话，仍含全书设定/梗概/叙事注入。Enter 发送；Ctrl+Enter 换行；Shift+Enter 换行。'
             : '带历史：多轮对话参与上下文。开启「流式输出」时工具步骤会像思考过程一样逐条出现，正文分块显示；可开「流式撰稿区」同步到大编辑框。Enter 发送；Ctrl+Enter 换行；Shift+Enter 换行。'
         }}
+        默认已开启流式输出。需要按大纲整章成稿并写入章节时，请用右上角「撰稿」。
       </n-text>
       <n-input
         v-model:value="inputMessage"

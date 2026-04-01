@@ -30,6 +30,162 @@ export interface GenerateChapterWorkflowResponse {
   token_count: number
 }
 
+export type GenerateChapterStreamEvent =
+  | { type: 'phase'; phase: 'planning' | 'context' | 'llm' | 'post' }
+  | { type: 'chunk'; text: string }
+  | { type: 'done'; content: string; consistency_report: ConsistencyReportDTO; token_count: number }
+  | { type: 'error'; message: string }
+
+function parseSseDataLine(line: string): unknown | null {
+  if (!line.startsWith('data: ')) return null
+  try {
+    return JSON.parse(line.slice(6)) as unknown
+  } catch {
+    return null
+  }
+}
+
+/**
+ * POST /api/v1/novels/{novel_id}/generate-chapter-stream（SSE）
+ * 阶段进度 + 正文流式；结束事件含 done 或 error。
+ */
+export async function consumeGenerateChapterStream(
+  novelId: string,
+  data: GenerateChapterWithContextPayload,
+  handlers: {
+    onEvent?: (ev: GenerateChapterStreamEvent) => void
+    onPhase?: (phase: string) => void
+    onChunk?: (text: string) => void
+    onDone?: (result: GenerateChapterWorkflowResponse) => void
+    onError?: (message: string) => void
+    signal?: AbortSignal
+  }
+): Promise<void> {
+  const res = await fetch(`/api/v1/novels/${novelId}/generate-chapter-stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+    signal: handlers.signal,
+  })
+  if (!res.ok || !res.body) {
+    const t = await res.text().catch(() => '')
+    handlers.onError?.(t || `HTTP ${res.status}`)
+    return
+  }
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += dec.decode(value, { stream: true })
+      let sep: number
+      while ((sep = buf.indexOf('\n\n')) >= 0) {
+        const block = buf.slice(0, sep)
+        buf = buf.slice(sep + 2)
+        for (const line of block.split('\n')) {
+          const raw = parseSseDataLine(line)
+          if (!raw || typeof raw !== 'object' || raw === null) continue
+          const o = raw as Record<string, unknown>
+          const typ = o.type as string
+          if (typ === 'phase') {
+            const ph = String(o.phase ?? '')
+            const ev: GenerateChapterStreamEvent = { type: 'phase', phase: ph as 'planning' | 'context' | 'llm' | 'post' }
+            handlers.onEvent?.(ev)
+            handlers.onPhase?.(ph)
+          } else if (typ === 'chunk') {
+            const text = String(o.text ?? '')
+            const ev: GenerateChapterStreamEvent = { type: 'chunk', text }
+            handlers.onEvent?.(ev)
+            handlers.onChunk?.(text)
+          } else if (typ === 'done') {
+            const result: GenerateChapterWorkflowResponse = {
+              content: String(o.content ?? ''),
+              consistency_report: o.consistency_report as ConsistencyReportDTO,
+              token_count: Number(o.token_count ?? 0),
+            }
+            const ev: GenerateChapterStreamEvent = { type: 'done', ...result }
+            handlers.onEvent?.(ev)
+            handlers.onDone?.(result)
+            return
+          } else if (typ === 'error') {
+            const msg = String(o.message ?? '生成失败')
+            const ev: GenerateChapterStreamEvent = { type: 'error', message: msg }
+            handlers.onEvent?.(ev)
+            handlers.onError?.(msg)
+            return
+          }
+        }
+      }
+    }
+  } catch (e: unknown) {
+    if (e instanceof Error && e.name === 'AbortError') return
+    const msg = e instanceof Error ? e.message : '流式连接失败'
+    handlers.onError?.(msg)
+  }
+}
+
+export interface HostedWritePayload {
+  from_chapter: number
+  to_chapter: number
+  auto_save: boolean
+  auto_outline: boolean
+}
+
+/**
+ * POST /api/v1/novels/{novel_id}/hosted-write-stream — 托管多章连写（SSE，每行 JSON）
+ */
+export async function consumeHostedWriteStream(
+  novelId: string,
+  body: HostedWritePayload,
+  handlers: {
+    onEvent?: (o: Record<string, unknown>) => void
+    onError?: (message: string) => void
+    signal?: AbortSignal
+  }
+): Promise<void> {
+  const res = await fetch(`/api/v1/novels/${novelId}/hosted-write-stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: handlers.signal,
+  })
+  if (!res.ok || !res.body) {
+    const t = await res.text().catch(() => '')
+    handlers.onError?.(t || `HTTP ${res.status}`)
+    return
+  }
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += dec.decode(value, { stream: true })
+      let sep: number
+      while ((sep = buf.indexOf('\n\n')) >= 0) {
+        const block = buf.slice(0, sep)
+        buf = buf.slice(sep + 2)
+        for (const line of block.split('\n')) {
+          const raw = parseSseDataLine(line)
+          if (!raw || typeof raw !== 'object' || raw === null) continue
+          const o = raw as Record<string, unknown>
+          handlers.onEvent?.(o)
+          if (o.type === 'error') {
+            handlers.onError?.(String(o.message ?? 'error'))
+            return
+          }
+        }
+      }
+    }
+  } catch (e: unknown) {
+    if (e instanceof Error && e.name === 'AbortError') return
+    handlers.onError?.(e instanceof Error ? e.message : '流式连接失败')
+  }
+}
+
 export const workflowApi = {
   /**
    * POST /api/v1/novels/{novel_id}/generate-chapter
@@ -58,7 +214,8 @@ export const workflowApi = {
 
   /**
    * 以下 Job 路由 **后端尚未实现**（`interfaces` 无 `/jobs`），调用会 404。
-   * 撰稿请用 `generateChapterWithContext`（Workbench 模态框）；结构规划仍依赖 Job，未实现前会失败。
+   * 单章/流式：`generateChapterWithContext` / `consumeGenerateChapterStream`；
+   * 多章托管：`consumeHostedWriteStream`（`/hosted-write-stream`）。
    */
   /** POST /api/v1/novels/{novel_id}/jobs/plan */
   startPlanJob: (novelId: string, dryRun = false, mode: 'initial' | 'revise' = 'initial') =>
