@@ -4,7 +4,7 @@
       <div class="kp-hero-copy">
         <h3 class="kp-title">侧栏资料</h3>
         <p class="kp-lead">
-          可在「叙事与知识」「关系图」「三元组图谱」间切换：叙事含梗概锁定、章摘要与三元组编辑；<strong>关系图从三元组自动生成</strong>（人物节点：谓词="是"且宾语含"主角/配角"；人物关系：谓词为"师徒/父子/朋友"等）；三元组图谱由事实表生成力导向图，便于查看「主—谓—宾」网络。书目级梗概以
+          可在「叙事与知识」「关系图」「知识库」间切换：叙事含梗概锁定、章摘要；<strong>关系图从知识库三元组自动生成</strong>（人物节点：谓词="是"且宾语含"主角/配角"；人物关系：谓词为"师徒/父子/朋友"等）；知识库支持图谱可视化、JSON 编辑和表格编辑。书目级梗概以
           <strong>manifest</strong> 为准。
         </p>
       </div>
@@ -14,7 +14,7 @@
           secondary
           :loading="generating"
           @click="generateKnowledge"
-          title="用 AI 根据 Bible 生成初始梗概锁定和知识三元组"
+          title="用 AI 根据 Bible 生成初始梗概锁定"
         >
           ✦ AI 生成
         </n-button>
@@ -33,13 +33,13 @@
     <n-radio-group v-model:value="sideTab" class="kp-seg" size="small">
       <n-radio-button value="narrative">叙事与知识</n-radio-button>
       <n-radio-button value="graph">关系图</n-radio-button>
-      <n-radio-button value="triple">三元组图谱</n-radio-button>
+      <n-radio-button value="knowledge">知识库</n-radio-button>
     </n-radio-group>
 
     <div v-show="sideTab === 'narrative'" class="kp-banner">
       <span class="kp-banner-dot" aria-hidden="true" />
       <span class="kp-banner-text">
-        梗概锁定、分章叙事与三元组可由工具（<code>story_*</code> / <code>kg_*</code>）写入，也可在此手改后保存。每章「节拍」对应大纲子段落；人物名请与关系图一致。<strong>关系图规范：</strong>人物节点用「主—是—主角/配角」，关系用「张三—师徒/父子/朋友—李四」。
+        梗概锁定、分章叙事可由工具（<code>story_*</code>）写入，也可在此手改后保存。每章「节拍」对应大纲子段落；人物名请与关系图一致。<strong>人物关系请在「知识库」中编辑三元组。</strong>
       </span>
     </div>
 
@@ -208,42 +208,10 @@
         <n-button dashed block class="kp-add-ch" @click="addChapter">+ 添加一章叙事块</n-button>
         </section>
       </n-tab-pane>
-
-      <n-tab-pane name="facts" tab="三元组">
-        <section class="kp-section">
-        <div class="kp-section-head">
-          <span class="kp-section-icon">◎</span>
-          <span class="kp-section-title">知识三元组</span>
-          <n-tag size="tiny" round :bordered="false" class="kp-tag-tool">kg_upsert_fact</n-tag>
-        </div>
-        <p class="kp-section-hint">事实型约束；主语/宾语可与人物图谱姓名对应，并标注出处章号。</p>
-
-        <div class="kp-facts">
-          <div v-for="(f, fi) in data.facts" :key="f.id" class="kp-fact">
-            <div class="kp-fact-id">{{ f.id }}</div>
-            <div class="kp-fact-grid">
-              <n-input v-model:value="f.subject" placeholder="主语" size="small" />
-              <n-input v-model:value="f.predicate" placeholder="关系" size="small" />
-              <n-input v-model:value="f.object" placeholder="宾语" size="small" />
-              <n-input
-                :value="factChapterText(f)"
-                placeholder="章号"
-                size="small"
-                class="kp-fact-ch"
-                @update:value="wrapSetFactChapter(f)($event)"
-              />
-              <n-input v-model:value="f.note" placeholder="备注" size="small" class="kp-fact-note" />
-            </div>
-            <n-button size="tiny" quaternary type="error" @click="removeFact(fi)">删除</n-button>
-          </div>
-        </div>
-        <n-button dashed block class="kp-add-ch" @click="addFact">+ 添加三元组</n-button>
-        </section>
-      </n-tab-pane>
     </n-tabs>
 
     <CastGraphCompact v-if="sideTab === 'graph'" :slug="slug" class="kp-graph-embed" />
-    <KnowledgeTripleGraph v-if="sideTab === 'triple'" :slug="slug" class="kp-graph-embed" />
+    <KnowledgeBase v-if="sideTab === 'knowledge'" :slug="slug" class="kp-graph-embed" />
   </div>
 </template>
 
@@ -254,7 +222,7 @@ import { useMessage } from 'naive-ui'
 import { chapterApi } from '../api/chapter'
 import { knowledgeApi } from '../api/knowledge'
 import CastGraphCompact from './CastGraphCompact.vue'
-import KnowledgeTripleGraph from './KnowledgeTripleGraph.vue'
+import KnowledgeBase from './KnowledgeBase.vue'
 
 
 const props = defineProps<{ slug: string }>()
@@ -271,20 +239,10 @@ interface Ch {
   sync_status: string
 }
 
-interface Fact {
-  id: string
-  subject: string
-  predicate: string
-  object: string
-  chapter_id: number | null
-  note: string
-}
-
 const data = ref({
   version: 1,
   premise_lock: '',
   chapters: [] as Ch[],
-  facts: [] as Fact[],
 })
 
 const saving = ref(false)
@@ -390,11 +348,7 @@ const save = async () => {
         beat_sections: (c.beat_sections || []).map(s => String(s || '').trim()).filter(Boolean),
         sync_status: (c.sync_status || 'draft').toLowerCase(),
       })),
-      facts: data.value.facts.map(f => ({
-        ...f,
-        id: f.id || `f_${Math.random().toString(36).slice(2, 10)}`,
-        chapter_id: f.chapter_id == null ? null : Number(f.chapter_id),
-      })),
+      facts: [], // facts 现在由 KnowledgeBase 组件管理
     })
     message.success('已保存并进入全书上下文')
   } catch (e: any) {
@@ -436,34 +390,9 @@ const removeChapterById = (cid: number) => {
   data.value.chapters = data.value.chapters.filter(c => c.chapter_id !== cid)
 }
 
-const addFact = () => {
-  data.value.facts.push({
-    id: `f_${Math.random().toString(36).slice(2, 12)}`,
-    subject: '',
-    predicate: '',
-    object: '',
-    chapter_id: null,
-    note: '',
-  })
-}
-
-const removeFact = (fi: number) => {
-  data.value.facts.splice(fi, 1)
-}
-
 const goCastChapter = (cid: number) => {
   router.push({ path: `/book/${props.slug}/cast`, query: { chapter: String(cid) } })
 }
-
-const factChapterText = (f: Fact) =>
-  f.chapter_id != null && f.chapter_id >= 1 ? String(f.chapter_id) : ''
-
-const setFactChapter = (f: Fact, v: string) => {
-  const n = parseInt(String(v ?? '').trim(), 10)
-  f.chapter_id = Number.isFinite(n) && n >= 1 ? n : null
-}
-
-const wrapSetFactChapter = (f: Fact) => (v: string) => setFactChapter(f, v)
 
 watch(
   () => props.slug,
@@ -717,41 +646,6 @@ onMounted(() => {
 
 .kp-add-ch {
   margin-top: 4px;
-}
-
-.kp-facts {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.kp-fact {
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: #fff;
-  border: 1px solid rgba(15, 23, 42, 0.07);
-}
-
-.kp-fact-id {
-  font-size: 10px;
-  font-family: ui-monospace, monospace;
-  color: #94a3b8;
-  margin-bottom: 8px;
-}
-
-.kp-fact-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.kp-fact-note {
-  grid-column: 1 / -1;
-}
-
-.kp-fact-ch {
-  max-width: 88px;
 }
 
 .kp-seg {
