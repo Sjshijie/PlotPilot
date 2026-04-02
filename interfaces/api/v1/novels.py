@@ -1,7 +1,8 @@
 """Novel API 路由"""
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 from pydantic import BaseModel, Field
+import logging
 
 from application.services.novel_service import NovelService
 from application.services.auto_bible_generator import AutoBibleGenerator
@@ -9,6 +10,7 @@ from application.dtos.novel_dto import NovelDTO
 from interfaces.api.dependencies import get_novel_service, get_auto_bible_generator
 from domain.shared.exceptions import EntityNotFoundError
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/novels", tags=["novels"])
 
@@ -31,15 +33,13 @@ class UpdateStageRequest(BaseModel):
 @router.post("/", response_model=NovelDTO, status_code=201)
 async def create_novel(
     request: CreateNovelRequest,
-    background_tasks: BackgroundTasks,
     service: NovelService = Depends(get_novel_service),
     bible_generator: AutoBibleGenerator = Depends(get_auto_bible_generator)
 ):
-    """创建新小说
+    """创建新小说并自动生成 Bible
 
     Args:
         request: 创建小说请求
-        background_tasks: 后台任务
         service: Novel 服务
         bible_generator: Bible 生成器
 
@@ -54,13 +54,16 @@ async def create_novel(
         target_chapters=request.target_chapters
     )
 
-    # 后台自动生成 Bible
-    background_tasks.add_task(
-        bible_generator.generate_and_save,
-        request.novel_id,
-        request.title,
-        request.target_chapters
-    )
+    # 同步生成 Bible（用户需要等待，确保 Bible 可用）
+    try:
+        await bible_generator.generate_and_save(
+            request.novel_id,
+            request.title,
+            request.target_chapters
+        )
+    except Exception as e:
+        # Bible 生成失败不影响小说创建
+        logger.error(f"Failed to generate Bible for {request.novel_id}: {e}")
 
     return novel_dto
 
