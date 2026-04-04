@@ -4,6 +4,8 @@
 """
 from pathlib import Path
 import sys
+import time
+from datetime import datetime
 
 # 必须在其他 aitext 模块导入前执行：将仓库根目录 `.env` 写入 os.environ
 _AITEXT_ROOT = Path(__file__).resolve().parents[1]
@@ -21,11 +23,20 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from interfaces.api.v1 import novels, chapters, bible, cast, knowledge, generation, story_structure
+from interfaces.api.v1 import chapter_element_routes, knowledge_graph_routes, continuous_planning_routes
 from web.routers.stats import create_stats_router
 from web.services.stats_service import StatsService
 from web.repositories.stats_repository_adapter import StatsRepositoryAdapter
 from application.paths import DATA_DIR
 
+# 后端版本号（每次重启递增）
+BACKEND_VERSION = datetime.now().strftime("%Y%m%d-%H%M%S")
+STARTUP_TIME = time.time()
+
+print("=" * 80)
+print(f"🚀 BACKEND STARTING - Version: {BACKEND_VERSION}")
+print(f"   Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+print("=" * 80)
 
 # 创建 FastAPI 应用
 app = FastAPI(
@@ -52,6 +63,11 @@ app.include_router(knowledge.router, prefix="/api/v1")
 app.include_router(generation.router, prefix="/api/v1")
 app.include_router(story_structure.router, prefix="/api/v1")
 
+# 注册统一的持续规划路由
+app.include_router(continuous_planning_routes.router)
+app.include_router(chapter_element_routes.router)
+app.include_router(knowledge_graph_routes.router)
+
 # 注册统计路由（使用适配器连接新架构）
 stats_repository = StatsRepositoryAdapter(DATA_DIR)
 stats_service = StatsService(stats_repository)
@@ -76,4 +92,9 @@ async def health_check():
     Returns:
         健康状态
     """
-    return {"status": "healthy"}
+    uptime = time.time() - STARTUP_TIME
+    return {
+        "status": "healthy",
+        "version": BACKEND_VERSION,
+        "uptime_seconds": round(uptime, 2)
+    }

@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS triples (
     entity_type TEXT,  -- 'character' | 'location' | NULL (通用)
     importance TEXT,  -- 人物: 'primary'|'secondary'|'minor', 地点: 'core'|'important'|'normal'
     location_type TEXT,  -- 地点类型: 'city'|'region'|'building'|'faction'|'realm'
+    description TEXT,  -- 实体描述
+    first_appearance TEXT,  -- 首次出现章节
+    related_chapters TEXT,  -- 相关章节列表 (JSON)
+    tags TEXT,  -- 标签 (JSON)
+    attributes TEXT,  -- 其他属性 (JSON)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,

@@ -58,7 +58,7 @@ class AutoBibleGenerator:
 
         system_prompt = """你是资深网文策划编辑。根据用户提供的故事创意/梗概，生成完整的人物和世界设定。
 
-**重要：只输出 JSON，不要有任何其他文字。**
+**重要：只输出有效的 JSON，不要有任何其他文字。description 字段必须是单行文本，不能有换行符。**
 
 要求：
 1. 深入理解故事梗概，提取核心冲突、主题、世界观
@@ -67,6 +67,7 @@ class AutoBibleGenerator:
 4. 至少 2-3 个重要地点，符合故事背景
 5. 明确的文风公约（叙事视角、人称、基调、节奏）
 6. 人物和地点要符合故事类型（现代都市/古代/玄幻/科幻等）
+7. **所有 description 字段必须是单行文本，用逗号或分号分隔不同要点，不要使用换行符**
 
 JSON 格式（不要有其他文字）：
 {
@@ -74,14 +75,14 @@ JSON 格式（不要有其他文字）：
     {
       "name": "人物名",
       "role": "主角/配角/对手/导师",
-      "description": "性格、背景、目标、特点（100-200字）"
+      "description": "性格、背景、目标、特点，所有内容在一行内，用逗号分隔"
     }
   ],
   "locations": [
     {
       "name": "地点名",
       "type": "城市/建筑/区域",
-      "description": "地点描述"
+      "description": "地点描述，单行文本"
     }
   ],
   "style": "第三人称有限视角，以XX视角为主。基调XX，节奏XX。避免XX。营造XX氛围。"
@@ -124,10 +125,29 @@ JSON 格式（不要有其他文字）：
             if start != -1 and end != -1:
                 content = content[start:end+1]
 
-            bible_data = json.loads(content)
-            return bible_data
+            logger.info(f"Attempting to parse Bible JSON (length: {len(content)})")
+
+            # 尝试直接解析
+            try:
+                bible_data = json.loads(content)
+                logger.info(f"Successfully parsed Bible JSON")
+                return bible_data
+            except json.JSONDecodeError as e:
+                # 如果失败，尝试修复常见问题
+                logger.warning(f"First parse attempt failed: {e}, trying to repair JSON...")
+
+                # 使用 json.loads 的 strict=False 模式
+                import re
+                # 移除字符串中的控制字符和多余的空白
+                content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
+
+                bible_data = json.loads(content, strict=False)
+                logger.info(f"Successfully parsed Bible JSON after repair")
+                return bible_data
+
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse Bible JSON: {e}")
+            logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
             # 返回默认结构
             return {
                 "characters": [
