@@ -61,7 +61,7 @@ def _migrate_novels_columns_before_schema_script(conn: sqlite3.Connection) -> No
             "ALTER TABLE novels ADD COLUMN current_chapter_in_act INTEGER DEFAULT 0"
         ),
         "max_auto_chapters": (
-            "ALTER TABLE novels ADD COLUMN max_auto_chapters INTEGER DEFAULT 50"
+            "ALTER TABLE novels ADD COLUMN max_auto_chapters INTEGER DEFAULT 9999"
         ),
         "current_auto_chapters": (
             "ALTER TABLE novels ADD COLUMN current_auto_chapters INTEGER DEFAULT 0"
@@ -105,7 +105,7 @@ def _apply_autopilot_v2_migrations(conn: sqlite3.Connection) -> None:
     cur = conn.execute("PRAGMA table_info(novels)")
     cols = {row[1] for row in cur.fetchall()}
     migrations = {
-        "max_auto_chapters": "ALTER TABLE novels ADD COLUMN max_auto_chapters INTEGER DEFAULT 50",
+        "max_auto_chapters": "ALTER TABLE novels ADD COLUMN max_auto_chapters INTEGER DEFAULT 9999",
         "current_auto_chapters": "ALTER TABLE novels ADD COLUMN current_auto_chapters INTEGER DEFAULT 0",
         "last_chapter_tension": "ALTER TABLE novels ADD COLUMN last_chapter_tension INTEGER DEFAULT 0",
         "consecutive_error_count": "ALTER TABLE novels ADD COLUMN consecutive_error_count INTEGER DEFAULT 0",

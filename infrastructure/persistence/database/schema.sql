@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS novels (
     current_stage TEXT DEFAULT 'planning',
     current_act INTEGER DEFAULT 0,
     current_chapter_in_act INTEGER DEFAULT 0,
-    max_auto_chapters INTEGER DEFAULT 50,
+    max_auto_chapters INTEGER DEFAULT 9999,
     current_auto_chapters INTEGER DEFAULT 0,
     last_chapter_tension INTEGER DEFAULT 0,
     consecutive_error_count INTEGER DEFAULT 0,
