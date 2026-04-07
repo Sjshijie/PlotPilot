@@ -132,6 +132,7 @@ class KnowledgeService:
         open_threads: str = "",
         consistency_note: str = "",
         beat_sections: List[str] = None,
+        micro_beats: List[Dict[str, Any]] = None,
         sync_status: str = "draft"
     ) -> StoryKnowledge:
         """添加或更新章节摘要
@@ -144,6 +145,7 @@ class KnowledgeService:
             open_threads: 未解问题
             consistency_note: 一致性说明
             beat_sections: 节拍列表
+            micro_beats: 微观节拍列表
             sync_status: 同步状态
 
         Returns:
@@ -158,6 +160,7 @@ class KnowledgeService:
             open_threads=open_threads,
             consistency_note=consistency_note,
             beat_sections=beat_sections or [],
+            micro_beats=micro_beats or [],
             sync_status=sync_status
         )
 

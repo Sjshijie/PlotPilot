@@ -11,6 +11,7 @@ class ChapterSummaryDTO(BaseModel):
     open_threads: str = Field(default="", description="未解问题")
     consistency_note: str = Field(default="", description="一致性说明")
     beat_sections: List[str] = Field(default_factory=list, description="节拍列表")
+    micro_beats: List[Dict[str, Any]] = Field(default_factory=list, description="微观节拍列表")
     sync_status: str = Field(default="draft", description="同步状态")
 
 
