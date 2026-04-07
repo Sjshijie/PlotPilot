@@ -37,43 +37,9 @@
         </div>
       </div>
 
-      <!-- 最近伏笔列表 -->
-      <div v-if="recentForeshadows.length > 0" class="recent-list">
-        <div class="list-header">最近埋设</div>
-        <div
-          v-for="item in recentForeshadows"
-          :key="item.id"
-          class="foreshadow-item"
-          :class="{ collected: item.is_collected }"
-        >
-          <div class="item-icon">
-            {{ item.is_collected ? '✓' : '⏳' }}
-          </div>
-          <div class="item-content">
-            <div class="item-text">{{ item.description }}</div>
-            <div class="item-meta">
-              <n-text depth="3" class="meta-text">
-                第 {{ item.planted_chapter }} 章埋设
-              </n-text>
-              <n-text v-if="item.is_collected" depth="3" class="meta-text">
-                · 第 {{ item.collected_chapter }} 章回收
-              </n-text>
-              <n-tag
-                :type="importanceTagType(item.importance)"
-                size="tiny"
-                :bordered="false"
-                class="importance-tag"
-              >
-                {{ importanceLabel(item.importance) }}
-              </n-tag>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 空状态 -->
+      <!-- 空状态提示 -->
       <n-empty
-        v-else
+        v-if="foreshadows.length === 0"
         description="暂无伏笔记录"
         size="small"
         style="margin: 16px 0"
