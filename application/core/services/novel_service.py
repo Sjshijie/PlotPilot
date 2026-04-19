@@ -255,6 +255,7 @@ class NovelService:
         # 同步创建 StoryNode 章节节点，并关联到当前活跃的幕
         if self.story_node_repository:
             try:
+                # 章节正文先以 Chapter 形式持久化，再补一份 StoryNode 供结构树/UI 使用。
                 # 查找当前活跃的幕（最新的幕）
                 tree = self.story_node_repository.get_tree_sync(novel_id)
                 acts = [node for node in tree.nodes if node.node_type == NodeType.ACT]

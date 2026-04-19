@@ -32,6 +32,7 @@ class SetupMainPlotSuggestionService:
         novel = self._novel_service.get_novel(novel_id)
         bible_dto = self._bible_service.get_bible_by_novel(novel_id)
 
+        # 这里只抽“主线候选”真正需要的最小上下文，避免把整本 Bible 原样塞给模型。
         premise = ""
         title = ""
         target_chapters = 100
@@ -60,6 +61,7 @@ class SetupMainPlotSuggestionService:
                     prot_idx = i
                     break
             if prot_idx is None and chars:
+                # 如果没显式标出主角，就退回第一位人物，保证提示词里始终有主视角角色。
                 prot_idx = 0
             if prot_idx is not None and chars:
                 c = chars[prot_idx]
@@ -96,6 +98,7 @@ class SetupMainPlotSuggestionService:
 
             notes = bible_dto.style_notes or []
             if notes:
+                # 文风只做轻量提示，不要求模型逐字遵守，避免主线候选被风格说明淹没。
                 style_hint = "；".join(
                     (f"{n.category}: {n.content}"[:200] for n in notes[:5] if n.content)
                 )
@@ -125,6 +128,7 @@ class SetupMainPlotSuggestionService:
         for i, item in enumerate(raw_list[:5]):
             if not isinstance(item, dict):
                 continue
+            # 统一裁剪字段长度并补齐缺省值，避免脏响应直接传到前端。
             oid = str(item.get("id") or f"option_{chr(ord('a') + i)}")
             out.append(
                 {
@@ -140,6 +144,7 @@ class SetupMainPlotSuggestionService:
 
     def _fallback_options(self, ctx: Dict[str, Any]) -> List[Dict[str, str]]:
         name = (ctx.get("protagonist") or {}).get("name") or "主角"
+        # 当 LLM 不可用或 JSON 不完整时，用确定性的三套模板兜底，保持向导能继续往下走。
         return [
             {
                 "id": "option_a_survival",
@@ -171,6 +176,7 @@ class SetupMainPlotSuggestionService:
         ctx = self._build_context(novel_id)
         user_blob = json.dumps(ctx, ensure_ascii=False, indent=2)
 
+        # 这里把小说元数据、Bible 静态设定和风格提示压成单个 JSON，上下文来源清晰也便于排查。
         system_prompt = """你是一位拥有十年经验的华语网络小说白金级编辑。作者已完成世界观与人物等静态设定，你需要推演 3 个截然不同、但都具有强商业张力与可读性的主线故事轴（Main Plot Options）。
 
 推演原则：
@@ -227,4 +233,5 @@ JSON Schema：
         except Exception as e:
             logger.warning("Main plot suggestion LLM parse failed: %s", e)
 
+        # 最终兜底保证这个服务永远返回可选项，避免向导因为单次模型失败而中断。
         return self._fallback_options(ctx)

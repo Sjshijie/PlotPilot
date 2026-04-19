@@ -467,6 +467,7 @@ const showSetupGuide = ref(false)
 const showLLMSettings = ref(false)
 const showAllModal = ref(false)
 const modalSearchQuery = ref('')
+// 创建成功后把 novelId 和目标章节数交给向导，后续各步都围绕这本新书继续补设定。
 const newNovelId = ref('')
 const newNovelTargetChapters = ref(10)
 
@@ -654,6 +655,7 @@ const handleCreate = async () => {
     )
     message.success('创建成功')
 
+    // 首页只负责「建档」；真正的世界观/人物/地图/主线生成都在向导里继续串行完成。
     newNovelId.value = result.id
     newNovelTargetChapters.value = result.target_chapters
     showSetupGuide.value = true
@@ -665,10 +667,12 @@ const handleCreate = async () => {
 }
 
 const handleSetupComplete = () => {
+  // 向导完成后再统一进入工作台，保证新书上下文已经初始化过一轮。
   router.push(`/book/${newNovelId.value}/workbench`)
 }
 
 const handleSetupSkip = () => {
+  // 跳过向导也会进工作台，后续可在工作台里补齐这些设定。
   router.push(`/book/${newNovelId.value}/workbench`)
 }
 

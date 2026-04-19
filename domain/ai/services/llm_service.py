@@ -9,7 +9,7 @@ class GenerationConfig:
     """生成配置"""
     def __init__(
         self,
-        model: str = "",
+        model: str = "LongCat-Flash-Chat",
         max_tokens: int = 4096,
         temperature: float = 1.0,
         response_format: Optional[Dict] = None,

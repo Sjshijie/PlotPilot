@@ -325,6 +325,8 @@ async def suggest_main_plot_options(
     if novel_service.get_novel(novel_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
     try:
+        # 这里先返回“候选”而不是直接落库：
+        # 向导需要给用户一个挑选/比较主线方向的机会，真正持久化故事线放在 create_storyline。
         raw = await setup_svc.suggest_options(novel_id)
         items = [MainPlotOptionItem(**opt) for opt in raw]
         return SuggestMainPlotOptionsResponse(plot_options=items)
@@ -461,6 +463,8 @@ def create_storyline(
 ):
     """创建新的故事线"""
     try:
+        # 这里是“候选/表单输入 -> 领域实体 Storyline”的落库边界。
+        # 一旦保存，工作台、图谱视图和后续规划都统一从 Storyline 仓储读取，不再依赖向导临时结果。
         storyline = manager.create_storyline(
             novel_id=NovelId(novel_id),
             storyline_type=StorylineType(request.storyline_type),
@@ -570,6 +574,8 @@ def get_plot_arc(
 ):
     """获取小说的情节弧"""
     try:
+        # 情节弧与 Storyline 分层保存：Storyline 表示“哪条线在什么章节推进”，
+        # PlotArc 表示整本书在关键章节上的张力起伏，便于在独立面板里编辑和复用。
         plot_arc = repository.get_by_novel_id(NovelId(novel_id))
 
         if plot_arc is None:
@@ -612,6 +618,7 @@ def create_or_update_plot_arc(
 ):
     """创建或更新情节弧"""
     try:
+        # 这里用 upsert 语义，前端保存情节弧时不需要区分“首次创建”还是“再次编辑”。
         # 尝试获取现有的情节弧
         plot_arc = repository.get_by_novel_id(NovelId(novel_id))
 
@@ -619,6 +626,7 @@ def create_or_update_plot_arc(
             # 创建新的情节弧
             plot_arc = PlotArc(id=f"{novel_id}-arc", novel_id=NovelId(novel_id))
 
+        # 前端提交的是当前编辑器中的全量关键点快照，因此这里采用“整体替换”而不是增量 patch。
         # 清空现有的情节点并添加新的
         plot_arc.key_points = []
         for point_req in request.key_points:

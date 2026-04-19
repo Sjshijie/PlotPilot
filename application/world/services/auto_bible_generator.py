@@ -311,6 +311,9 @@ class AutoBibleGenerator:
         """
         logger.info(f"Generating Bible for novel: {premise[:50]}... (stage: {stage})")
 
+        # 这个入口是“新书设置向导”的阶段编排器：
+        # 负责确保 Bible 记录存在、按 stage 调用不同提示词、并把结果落到 Bible /
+        # Worldbuilding / Triple 等下游存储。
         # 1. 创建空 Bible（如果不存在）
         bible_id = f"{novel_id}-bible"
         try:
@@ -335,6 +338,7 @@ class AutoBibleGenerator:
         if stage == "all":
             # 一次性生成所有内容（向后兼容）
             bible_data = await self._generate_bible_data(premise, target_chapters)
+            # all 模式会先把人物/地点/文风整体写入 Bible，再单独把世界观双写到专门表。
             await self._save_to_bible(novel_id, bible_data)
             if self.worldbuilding_service and "worldbuilding" in bible_data:
                 await self._save_worldbuilding(novel_id, bible_data["worldbuilding"])
@@ -376,6 +380,7 @@ class AutoBibleGenerator:
                         raise
             # 保存世界观
             if self.worldbuilding_service and "worldbuilding" in bible_data:
+                # 世界观需要双写：结构化表给后续人物/地点生成读取，Bible.world_settings 给前端展示。
                 await self._save_worldbuilding(novel_id, bible_data["worldbuilding"])
 
         elif stage == "characters":
@@ -421,6 +426,7 @@ class AutoBibleGenerator:
 
             # 从人物关系生成三元组
             if self.triple_repository:
+                # 这里会把 LLM 产出的人物关系再投影成知识三元组，供关系图/检索等下游使用。
                 await self._generate_character_triples(novel_id, character_ids)
 
         elif stage == "locations":
@@ -460,6 +466,7 @@ class AutoBibleGenerator:
 
             # 从地点连接生成三元组
             if self.triple_repository:
+                # 地图阶段除了保存 Bible.location，还会额外抽出地点连接关系形成图结构。
                 await self._generate_location_triples(novel_id, location_ids)
 
         else:
@@ -598,6 +605,8 @@ JSON 格式（不要有其他文字）：
             logger.error(f"Failed to ensure Bible exists: {e}")
             return
 
+        # 这个方法是“全量生成”路径的统一落库点：
+        # 把 LLM 返回的松散 JSON 拆成 Bible 的人物、地点、文风等子记录。
         # 添加人物
         used_character_ids = set()  # 用于跟踪已使用的人物ID
         for idx, char_data in enumerate(bible_data.get("characters", [])):
@@ -671,6 +680,7 @@ JSON 格式（不要有其他文字）：
         if self.worldbuilding_service:
             try:
                 print(f"[DEBUG] Calling worldbuilding_service.update_worldbuilding", file=sys.stderr, flush=True)
+                # 结构化世界观是人物/地点阶段的主要上下文来源，因此单独保存一份规范化数据。
                 self.worldbuilding_service.update_worldbuilding(
                     novel_id=novel_id,
                     core_rules=worldbuilding_data.get("core_rules"),
@@ -699,6 +709,7 @@ JSON 格式（不要有其他文字）：
             for dimension_name, dimension_data in worldbuilding_data.items():
                 if isinstance(dimension_data, dict):
                     for key, value in dimension_data.items():
+                        # Bible 中按扁平 key 存一份，方便前端以列表形式逐条展示和编辑。
                         setting_id = f"{novel_id}-ws-{uuid.uuid4().hex[:8]}"
                         self.bible_service.add_world_setting(
                             novel_id=novel_id,
@@ -716,6 +727,7 @@ JSON 格式（不要有其他文字）：
         if not self.worldbuilding_service:
             return {}
         try:
+            # 后续阶段优先读取结构化世界观，而不是从 Bible.world_settings 反推，避免丢失层级结构。
             wb = self.worldbuilding_service.get_worldbuilding(novel_id)
             return {
                 "core_rules": wb.core_rules,
@@ -730,6 +742,7 @@ JSON 格式（不要有其他文字）：
     def _load_characters(self, novel_id: str) -> list:
         """加载已有人物"""
         try:
+            # 地点生成只需要人物摘要做提示词上下文，因此这里读取的是轻量视图。
             bible = self.bible_service.get_bible(novel_id)
             return [{"name": c.name, "description": c.description} for c in bible.characters]
         except:
@@ -737,6 +750,7 @@ JSON 格式（不要有其他文字）：
 
     async def _generate_worldbuilding_and_style(self, premise: str, target_chapters: int) -> Dict[str, Any]:
         """只生成世界观和文风"""
+        # 第一步先把“静态设定”定下来，后面的人物和地图都围绕这份世界观继续扩展。
         system_prompt = """你是资深网文策划编辑。根据故事创意生成世界观和文风公约。
 
 要求：
@@ -795,6 +809,7 @@ JSON 格式：
 
     async def _generate_characters(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any]) -> Dict[str, Any]:
         """基于世界观生成人物"""
+        # 人物阶段不会重新让模型发散整个世界，而是把已确认的世界观压缩成摘要再续写人物层。
         wb_summary = self._summarize_worldbuilding(worldbuilding)
 
         system_prompt = """你是资深网文策划编辑。基于已有世界观生成主要人物。
@@ -844,6 +859,7 @@ JSON 格式：
 
     async def _generate_locations(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any], characters: list) -> Dict[str, Any]:
         """基于世界观和人物生成地点"""
+        # 地图阶段会同时喂入世界观和人物活动信息，让地点更贴合角色关系与故事舞台。
         wb_summary = self._summarize_worldbuilding(worldbuilding)
         char_summary = "\n".join([f"- {c['name']}: {c['description'][:50]}..." for c in characters])
 
@@ -963,6 +979,7 @@ JSON 格式：
         """从人物关系生成三元组"""
         logger.info(f"Generating character relationship triples for {novel_id}")
 
+        # 先把 Bible 中的人物记录转成名称 -> ID 映射，便于把 LLM 的文字关系落到实体关系上。
         # 创建人物名称到ID的映射
         name_to_id = {char_data["name"]: char_id for char_id, char_data in character_ids}
         id_to_char = {cid: data for cid, data in character_ids}
@@ -1041,6 +1058,7 @@ JSON 格式：
         """从地点连接生成三元组"""
         logger.info(f"Generating location connection triples for {novel_id}")
 
+        # 地图里既有 parent_id 层级，也有 connections 关系；这里只有连接关系会被投影成三元组。
         # 创建地点名称到ID的映射
         name_to_id = {loc_data["name"]: loc_id for loc_id, loc_data in location_ids}
         id_to_loc = {lid: data for lid, data in location_ids}

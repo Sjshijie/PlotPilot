@@ -423,7 +423,7 @@ const emit = defineEmits<{
   (e: 'skip'): void
 }>()
 
-/** 与父组件 show 单一数据源，避免本地 visible 与 props 打架导致误 emit(false) 把向导关掉 */
+/** 与父组件 show 保持单一数据源，弹窗开关、关闭确认都从这里统一出入口。 */
 const modalOpen = computed({
   get: () => props.show,
   set: (v: boolean) => {
@@ -570,6 +570,7 @@ function clearPollTimer() {
  * 轮询：串行 setTimeout，避免 setInterval+async 叠请求。
  * 必须用 function 声明放在 watch 之前：`watch(..., { immediate: true })` 会同步调用回调，
  * `const startBibleGeneration = ...` 尚在暂存死区会导致运行时报错 / 逻辑异常。
+ * 这是向导的起点：打开弹窗后先只生成 Step 1 的世界观/文风，成功后再把结果回填到预览区。
  */
 async function startBibleGeneration() {
   clearGenerationTimers()
@@ -601,7 +602,7 @@ async function startBibleGeneration() {
           generatingBible.value = false
           bibleStatusText.value = '世界观生成完成！'
 
-          // 加载 Bible + 世界观：世界观接口失败时从 Bible.world_settings 回退
+          // 生成完成后再补拉详情；worldbuilding 独立接口没数据时，退回用 Bible 里的扁平 world_settings 兜底展示。
           try {
             const bible = await bibleApi.getBible(props.novelId)
             bibleData.value = bible
@@ -655,6 +656,7 @@ watch(
   () => props.show,
   (val) => {
     if (val) {
+      // 每次重新打开向导，都把步骤状态重置成新的一轮，避免沿用上一次关闭前的生成结果。
       currentStep.value = 1
       stepStatus.value = 'process'
       plotOptions.value = []
@@ -664,6 +666,7 @@ watch(
       plotSuggestError.value = ''
       void startBibleGeneration()
     } else {
+      // 父组件关闭弹窗时立即作废轮询，避免后台请求回来后又把 UI 状态改回去。
       biblePollEpoch.value += 1
       clearGenerationTimers()
       generatingBible.value = false
@@ -673,6 +676,7 @@ watch(
 )
 
 watch(currentStep, (step) => {
+  // Step 4 才需要主线候选，按需加载，避免一打开向导就多打一轮推演请求。
   if (step === 4 && props.show && plotOptions.value.length === 0 && !plotSuggesting.value) {
     void loadPlotSuggestions()
   }
@@ -680,12 +684,12 @@ watch(currentStep, (step) => {
 
 const handleNext = async () => {
   if (currentStep.value === 1) {
-    // 进入第2步：生成人物
+    // Step 1 确认后才进入人物生成；人物要基于已确认的世界观继续扩展。
     currentStep.value = 2
     generatingCharacters.value = true
     try {
       await bibleApi.generateBible(props.novelId, 'characters')
-      // 轮询检查人物生成状态
+      // 这里不查 status，而是直接轮询 Bible 内容，直到 characters 真正写回。
       const checkCharacters = async () => {
         const bible = await bibleApi.getBible(props.novelId)
         bibleData.value = bible
@@ -702,12 +706,12 @@ const handleNext = async () => {
       generatingCharacters.value = false
     }
   } else if (currentStep.value === 2) {
-    // 进入第3步：生成地点
+    // Step 2 确认后再生成地点，地点会消费前面已经确认过的世界观和人物。
     currentStep.value = 3
     generatingLocations.value = true
     try {
       await bibleApi.generateBible(props.novelId, 'locations')
-      // 轮询检查地点生成状态
+      // 与人物步骤相同，直到 Bible.locations 写回成功才解锁「确认并继续」。
       const checkLocations = async () => {
         const bible = await bibleApi.getBible(props.novelId)
         bibleData.value = bible

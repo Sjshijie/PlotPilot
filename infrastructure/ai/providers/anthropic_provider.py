@@ -177,6 +177,7 @@ class AnthropicProvider(BaseProvider):
             "anthropic-version": "2023-06-01",
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
+            "Authorization": f"Bearer {self.settings.api_key}",
             # 伪造 User-Agent 模拟 claude-cli
             "User-Agent": "claude-cli/2.1.87 (external, cli)",
             **(self.settings.extra_headers or {}),

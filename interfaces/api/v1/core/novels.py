@@ -122,6 +122,9 @@ async def create_novel(
     Returns:
         创建的小说 DTO
     """
+    # 新书创建接口刻意保持“只建实体”的边界：
+    # 先把 Novel 本身落库，后续再由向导分别触发 Bible 生成、主线候选推演和情节弧编辑，
+    # 这样可以避免创建接口被 LLM 长耗时任务拖成一个不可重试的长事务。
     # 只创建小说实体，不生成 Bible
     novel_dto = service.create_novel(
         novel_id=request.novel_id,

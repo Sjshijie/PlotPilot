@@ -168,12 +168,14 @@ async def generate_bible(
     Returns:
         202 Accepted，表示生成任务已启动
     """
+    # Bible 生成拆成独立接口 + 后台任务，而不是并入“创建小说”接口：
+    # 这样前端可以在向导里按 step/stage 分步推进，也允许用户在某个阶段失败后单独重试。
     async def _generate_task():
         import sys
         print(f"[TASK START] Bible generation for {novel_id}, stage={stage}", file=sys.stderr, flush=True)
         logger.info(f"Starting Bible generation task for {novel_id}, stage={stage}")
         try:
-            # 获取小说信息（需要 premise 和 target_chapters）
+            # 后台任务里重新读取 Novel，确保以库里的最新 premise / target_chapters 为准。
             from interfaces.api.dependencies import get_novel_service
             novel_service = get_novel_service()
             novel = novel_service.get_novel(novel_id)
@@ -181,10 +183,11 @@ async def generate_bible(
                 logger.error(f"Novel not found: {novel_id}")
                 return
 
-            # 使用 premise（故事梗概）生成 Bible，如果没有则使用 title
+            # 向导入口优先用 premise 作为创意输入，缺省时才退回 title。
             premise = novel.premise if novel.premise else novel.title
 
-            # 生成 Bible（支持分阶段）
+            # 具体 stage=all/worldbuilding/characters/locations 的分派在 service 层完成，
+            # 路由层只负责把“当前想生成到哪一步”的意图传下去。
             bible_data = await bible_generator.generate_and_save(
                 novel_id,
                 premise,
@@ -199,7 +202,7 @@ async def generate_bible(
             loc_desc = "、".join(c['name'] for c in locs[:3])
             bible_summary = f"主要角色：{char_desc}。重要地点：{loc_desc}。文风：{bible_data.get('style', '')}。"
 
-            # 生成初始 Knowledge
+            # Knowledge 依赖 Bible 摘要，因此跟在 Bible 生成之后作为同一个后台链路的下一步。
             await knowledge_generator.generate_and_save(
                 novel_id,
                 novel.title,
@@ -214,6 +217,7 @@ async def generate_bible(
             logger.error(f"Failed to generate Bible/Knowledge for {novel_id}: {e}")
             logger.error(traceback.format_exc())
 
+    # HTTP 请求只负责“投递任务”，真正的 LLM 流水线在响应返回后继续跑。
     background_tasks.add_task(_generate_task)
 
     return {
@@ -260,6 +264,8 @@ async def get_bible_status(
     try:
         bible = service.get_bible_by_novel(novel_id)
         exists = bible is not None
+        # ready 不是“所有阶段都完成”，而是“已经有足够内容让向导继续往下走”。
+        # 这样前端在 worldbuilding 先生成完成时就能解锁后续人物/地点步骤。
         # 修改ready逻辑：只要有文风公约或世界观就算ready（支持分阶段生成）
         ready = exists and (len(bible.style_notes) > 0 or len(bible.world_settings) > 0 or len(bible.characters) > 0)
 
